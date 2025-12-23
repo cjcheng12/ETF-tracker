@@ -2,45 +2,76 @@ import streamlit as st
 import yfinance as yf
 
 # --- Page Config ---
-st.set_page_config(page_title="ETF Tracker", page_icon="📈")
+st.set_page_config(page_title="ETF & FX Tracker", page_icon="📈")
 
-st.title("📊 Taiwan ETF Tracker")
+st.title("📊 Taiwan Market Tracker")
+st.caption("Alerts trigger when price is within 5% of 52-Week Low")
 
-# --- 1. Currency Section (CAD to TWD) ---
-st.subheader("💱 Exchange Rate")
+# Define the buying buffer (5%)
+BUFFER = 0.05 
+
+st.divider()
+
+# ==========================================
+# SECTION 1: CAD to TWD CURRENCY
+# ==========================================
+st.subheader("💱 CAD/TWD Exchange Rate")
+
 try:
-    # Get CAD to TWD data
-    fx = yf.Ticker("CADTWD=X")
-    fx_data = fx.history(period="5d")
+    # 1. Get 1 Year of Currency Data
+    fx_ticker = "CADTWD=X"
+    fx = yf.Ticker(fx_ticker)
+    fx_hist = fx.history(period="1y")
     
-    if not fx_data.empty:
-        current_fx = fx_data['Close'].iloc[-1]
-        prev_fx = fx_data['Close'].iloc[-2] # Compare to previous day
-        fx_change = current_fx - prev_fx
+    if not fx_hist.empty:
+        # 2. Calculate Metrics
+        curr_fx = fx_hist['Close'].iloc[-1]
+        low_fx = fx_hist['Low'].min()
+        high_fx = fx_hist['High'].max()
+        target_fx = low_fx * (1 + BUFFER) # The "Alert" Price
         
-        st.metric(
-            label="🇨🇦 CAD ➔ 🇹🇼 TWD", 
-            value=f"${current_fx:.2f}", 
-            delta=f"{fx_change:.2f}"
-        )
+        # Calculate % difference from low
+        fx_diff = ((curr_fx - low_fx) / low_fx) * 100
+        
+        # 3. Logic: Is it near the low?
+        if curr_fx <= target_fx:
+            st.error(f"🚨 CAD is WEAK (Near 52-Week Low)")
+            st.metric(
+                label="CAD ➔ TWD", 
+                value=f"${curr_fx:.2f}", 
+                delta=f"{fx_diff:.2f}% from low",
+                delta_color="inverse"
+            )
+            st.write(f"📉 **52-Week Low:** {low_fx:.2f}")
+            st.write(f"⚠️ **Alert Zone (<{BUFFER*100:.0f}%):** {target_fx:.2f}")
+            
+        else:
+            st.success(f"✅ CAD is Stronger")
+            st.metric(
+                label="CAD ➔ TWD", 
+                value=f"${curr_fx:.2f}", 
+                delta=f"+{fx_diff:.2f}% from low"
+            )
+            st.caption(f"Current rate is healthy (Low was {low_fx:.2f})")
+            
     else:
-        st.warning("Could not load exchange rate.")
-        
+        st.warning("Could not load currency data.")
+
 except Exception as e:
     st.error(f"Currency Error: {e}")
 
 st.divider()
 
-# --- 2. ETF Section ---
-st.subheader("📉 Stock Watchlist (5% Zone)")
+# ==========================================
+# SECTION 2: ETF WATCHLIST
+# ==========================================
+st.subheader("📉 ETF Watchlist")
 
 etfs = ['00713.TW', '00919.TW', '0056.TW']
 
-# Define the buying buffer (5%)
-BUFFER = 0.05 
-
 for ticker in etfs:
     try:
+        # 1. Get 1 Year of Stock Data
         stock = yf.Ticker(ticker)
         hist = stock.history(period="1y")
         
@@ -48,19 +79,16 @@ for ticker in etfs:
             st.warning(f"No data for {ticker}")
             continue
 
-        # Calculate Logic
+        # 2. Calculate Metrics
         current_price = hist['Close'].iloc[-1]
         low_52 = hist['Low'].min()
+        target_price = low_52 * (1 + BUFFER) # The "Alert" Price
         
-        # Target is the Low + 5%
-        target_price = low_52 * (1 + BUFFER) 
-        
-        # Calculate how far we are from the low (in %)
         diff_percent = ((current_price - low_52) / low_52) * 100
         
-        # Display Logic
+        # 3. Logic: Is it near the low?
         if current_price <= target_price:
-             # ALERT! (This is your visual notification)
+             # ALERT ZONE
              st.error(f"🚨 {ticker.replace('.TW','')} is in BUY ZONE!")
              st.metric(
                  label=ticker, 
@@ -68,9 +96,9 @@ for ticker in etfs:
                  delta=f"{diff_percent:.1f}% from low",
                  delta_color="inverse" 
              )
-             st.caption(f"Target (<5%) was: ${target_price:.2f}")
+             st.write(f"📉 **Low:** {low_52:.2f} | 🎯 **Target:** <{target_price:.2f}")
         else:
-             # Safe / Wait
+             # SAFE ZONE
              st.success(f"✅ {ticker.replace('.TW','')} is Waiting")
              st.metric(
                  label=ticker, 
@@ -83,7 +111,7 @@ for ticker in etfs:
     except Exception as e:
         st.error(f"Error loading {ticker}: {e}")
 
-# Refresh button
-if st.button('Refresh Data'):
+# Refresh button at the bottom
+if st.button('Refresh Prices'):
     st.rerun()
     
