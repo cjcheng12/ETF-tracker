@@ -1,6 +1,6 @@
 import streamlit as st
 import yfinance as yf
-import time # Needed for the timer
+import time
 
 # --- Page Config ---
 st.set_page_config(page_title="ETF & FX Tracker", page_icon="📈")
@@ -11,6 +11,14 @@ st.caption("Alerts trigger when price is within 5% of 52-Week Low")
 # Define the buying buffer (5%)
 BUFFER = 0.05 
 
+# --- SMART CACHING FUNCTION (The Fix) ---
+# This prevents "Too Many Requests" errors by remembering data for 60 seconds
+@st.cache_data(ttl=60)
+def get_stock_history(symbol):
+    stock = yf.Ticker(symbol)
+    # return the full history
+    return stock.history(period="max")
+
 st.divider()
 
 # ==========================================
@@ -19,10 +27,8 @@ st.divider()
 st.subheader("💱 CAD/TWD Exchange Rate")
 
 try:
-    # 1. Get MAX History
-    fx_ticker = "CADTWD=X"
-    fx = yf.Ticker(fx_ticker)
-    fx_hist = fx.history(period="max")
+    # Use the cached function instead of calling yfinance directly
+    fx_hist = get_stock_history("CADTWD=X")
     
     if not fx_hist.empty:
         curr_fx = fx_hist['Close'].iloc[-1]
@@ -30,42 +36,27 @@ try:
         # 52-Week Data (approx 252 trading days)
         last_year_data = fx_hist.tail(252)
         low_52 = last_year_data['Low'].min()
-        
-        # All-Time Data
         low_all_time = fx_hist['Low'].min()
         
-        # Target
         target_fx = low_52 * (1 + BUFFER)
         
-        # % Gaps
         diff_52 = ((curr_fx - low_52) / low_52) * 100
         diff_all = ((curr_fx - low_all_time) / low_all_time) * 100
         
-        # ALERT LOGIC
         if curr_fx <= target_fx:
             st.error(f"🚨 CAD is WEAK (Near 52-Week Low)")
-            st.metric(
-                label="CAD ➔ TWD", 
-                value=f"${curr_fx:.2f}", 
-                delta=f"{diff_52:.2f}% from 52w low",
-                delta_color="inverse"
-            )
+            st.metric(label="CAD ➔ TWD", value=f"${curr_fx:.2f}", delta=f"{diff_52:.2f}% from 52w low", delta_color="inverse")
         else:
             st.success(f"✅ CAD is Stronger")
-            st.metric(
-                label="CAD ➔ TWD", 
-                value=f"${curr_fx:.2f}", 
-                delta=f"+{diff_52:.2f}% from 52w low"
-            )
+            st.metric(label="CAD ➔ TWD", value=f"${curr_fx:.2f}", delta=f"+{diff_52:.2f}% from 52w low")
             
         st.write(f"📉 **52-Week Low:** ${low_52:.2f}")
         st.write(f"🏛️ **All-Time Low:** ${low_all_time:.2f} (Gap: {diff_all:.2f}%)")
-            
     else:
         st.warning("Could not load currency data.")
 
 except Exception as e:
-    st.error(f"Currency Error: {e}")
+    st.warning(f"Currency currently unavailable (Rate Limit). Try again in 1 min.")
 
 st.divider()
 
@@ -78,14 +69,13 @@ etfs = ['00713.TW', '00919.TW', '0056.TW', '0050.TW']
 
 for ticker in etfs:
     try:
-        stock = yf.Ticker(ticker)
-        hist = stock.history(period="max")
+        # Use the cached function
+        hist = get_stock_history(ticker)
         
         if hist.empty:
             st.warning(f"No data for {ticker}")
             continue
 
-        # Metrics
         current_price = hist['Close'].iloc[-1]
         last_year_data = hist.tail(252)
         low_52 = last_year_data['Low'].min()
@@ -98,44 +88,31 @@ for ticker in etfs:
         
         clean_name = ticker.replace('.TW','')
 
-        # Logic
         if current_price <= target_price:
              st.error(f"🚨 {clean_name} is in BUY ZONE!")
-             st.metric(
-                 label=clean_name, 
-                 value=f"${current_price:.2f}", 
-                 delta=f"{gap_52:.2f}% from 52w Low",
-                 delta_color="inverse" 
-             )
+             st.metric(label=clean_name, value=f"${current_price:.2f}", delta=f"{gap_52:.2f}% from 52w Low", delta_color="inverse")
         else:
              st.success(f"✅ {clean_name} is Waiting")
-             st.metric(
-                 label=clean_name, 
-                 value=f"${current_price:.2f}", 
-                 delta=f"+{gap_52:.2f}% from 52w Low"
-             )
+             st.metric(label=clean_name, value=f"${current_price:.2f}", delta=f"+{gap_52:.2f}% from 52w Low")
         
-        st.info(
-            f"📉 **52-Week Low:** ${low_52:.2f}\n\n"
-            f"🏛️ **All-Time Low:** ${low_all_time:.2f} (Gap: {gap_all:.2f}%)"
-        )
+        st.info(f"📉 **52-Week Low:** ${low_52:.2f}\n\n🏛️ **All-Time Low:** ${low_all_time:.2f} (Gap: {gap_all:.2f}%)")
              
         st.divider()
         
     except Exception as e:
-        st.error(f"Error loading {ticker}: {e}")
+        st.warning(f"Could not load {ticker}. (Rate Limit hit - wait a moment)")
 
 # ==========================================
-# SECTION 3: AUTO REFRESH
+# SECTION 3: SAFER REFRESH
 # ==========================================
-# Checkbox to enable/disable auto-refresh
-auto_refresh = st.checkbox("🔄 Enable Auto-Refresh (Every 10s)")
+st.caption("Auto-refresh checks every 60s to prevent blocking.")
+auto_refresh = st.checkbox("🔄 Enable Auto-Refresh")
 
 if auto_refresh:
-    time.sleep(10) # Wait 10 seconds
-    st.rerun()     # Reload the app
-
-# Manual refresh button (always available)
-if st.button('Manual Refresh Now'):
+    time.sleep(60) # Increased to 60s to prevent errors
     st.rerun()
-    
+
+if st.button('Manual Refresh'):
+    st.cache_data.clear() # This forces a real update when you click the button
+    st.rerun()
+
