@@ -1,3 +1,4 @@
+
 import streamlit as st
 import yfinance as yf
 
@@ -24,27 +25,22 @@ try:
     fx_hist = fx.history(period="1y")
     
     if not fx_hist.empty:
-        # 2. Calculate Metrics
         curr_fx = fx_hist['Close'].iloc[-1]
         low_fx = fx_hist['Low'].min()
-        high_fx = fx_hist['High'].max()
-        target_fx = low_fx * (1 + BUFFER) # The "Alert" Price
+        target_fx = low_fx * (1 + BUFFER)
         
-        # Calculate % difference from low
+        # Calculate % difference
         fx_diff = ((curr_fx - low_fx) / low_fx) * 100
         
-        # 3. Logic: Is it near the low?
+        # Display Logic
         if curr_fx <= target_fx:
-            st.error(f"🚨 CAD is WEAK (Near 52-Week Low)")
+            st.error(f"🚨 CAD is WEAK (Near Low)")
             st.metric(
                 label="CAD ➔ TWD", 
                 value=f"${curr_fx:.2f}", 
                 delta=f"{fx_diff:.2f}% from low",
                 delta_color="inverse"
             )
-            st.write(f"📉 **52-Week Low:** {low_fx:.2f}")
-            st.write(f"⚠️ **Alert Zone (<{BUFFER*100:.0f}%):** {target_fx:.2f}")
-            
         else:
             st.success(f"✅ CAD is Stronger")
             st.metric(
@@ -52,7 +48,9 @@ try:
                 value=f"${curr_fx:.2f}", 
                 delta=f"+{fx_diff:.2f}% from low"
             )
-            st.caption(f"Current rate is healthy (Low was {low_fx:.2f})")
+            
+        # Explicitly show the lowest price
+        st.info(f"📉 **52-Week Low:** ${low_fx:.2f} (Current is {fx_diff:.2f}% higher)")
             
     else:
         st.warning("Could not load currency data.")
@@ -67,11 +65,11 @@ st.divider()
 # ==========================================
 st.subheader("📉 ETF Watchlist")
 
-etfs = ['00713.TW', '00919.TW', '0056.TW']
+# Added 0050.TW to the list
+etfs = ['00713.TW', '00919.TW', '0056.TW', '0050.TW']
 
 for ticker in etfs:
     try:
-        # 1. Get 1 Year of Stock Data
         stock = yf.Ticker(ticker)
         hist = stock.history(period="1y")
         
@@ -79,39 +77,45 @@ for ticker in etfs:
             st.warning(f"No data for {ticker}")
             continue
 
-        # 2. Calculate Metrics
+        # Calculate Metrics
         current_price = hist['Close'].iloc[-1]
         low_52 = hist['Low'].min()
-        target_price = low_52 * (1 + BUFFER) # The "Alert" Price
+        target_price = low_52 * (1 + BUFFER)
         
+        # Calculate % difference
         diff_percent = ((current_price - low_52) / low_52) * 100
         
-        # 3. Logic: Is it near the low?
+        # Clean Ticker Name (Remove .TW)
+        clean_name = ticker.replace('.TW','')
+
+        # Logic: Is it near the low?
         if current_price <= target_price:
              # ALERT ZONE
-             st.error(f"🚨 {ticker.replace('.TW','')} is in BUY ZONE!")
+             st.error(f"🚨 {clean_name} is in BUY ZONE!")
              st.metric(
-                 label=ticker, 
+                 label=clean_name, 
                  value=f"${current_price:.2f}", 
-                 delta=f"{diff_percent:.1f}% from low",
+                 delta=f"{diff_percent:.2f}% from low",
                  delta_color="inverse" 
              )
-             st.write(f"📉 **Low:** {low_52:.2f} | 🎯 **Target:** <{target_price:.2f}")
         else:
              # SAFE ZONE
-             st.success(f"✅ {ticker.replace('.TW','')} is Waiting")
+             st.success(f"✅ {clean_name} is Waiting")
              st.metric(
-                 label=ticker, 
+                 label=clean_name, 
                  value=f"${current_price:.2f}", 
-                 delta=f"+{diff_percent:.1f}% from low"
+                 delta=f"+{diff_percent:.2f}% from low"
              )
+        
+        # Extra details you requested
+        st.info(f"📉 **Lowest Price (52w):** ${low_52:.2f} | **Gap:** {diff_percent:.2f}%")
              
         st.divider()
         
     except Exception as e:
         st.error(f"Error loading {ticker}: {e}")
 
-# Refresh button at the bottom
+# Refresh button
 if st.button('Refresh Prices'):
     st.rerun()
     
