@@ -1,8 +1,7 @@
-
 import streamlit as st
 import yfinance as yf
 import time
-import pandas as pd # Needed for the yield calculation
+import pandas as pd 
 
 # --- Page Config ---
 st.set_page_config(page_title="ETF & FX Tracker", page_icon="📈")
@@ -101,7 +100,8 @@ st.divider()
 # ==========================================
 st.subheader("📉 ETF Watchlist")
 
-etfs = ['00713.TW', '00919.TW', '0056.TW', '0050.TW']
+# UPDATED LIST: Added 00915.TW
+etfs = ['00713.TW', '00919.TW', '0056.TW', '0050.TW', '00915.TW']
 
 for ticker in etfs:
     try:
