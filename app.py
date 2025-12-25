@@ -1,6 +1,8 @@
+
 import streamlit as st
 import yfinance as yf
 import time
+import pandas as pd # Needed for the yield calculation
 
 # --- Page Config ---
 st.set_page_config(page_title="ETF & FX Tracker", page_icon="📈")
@@ -11,13 +13,48 @@ st.caption("Alerts trigger when price is within 5% of 52-Week Low")
 # Define the buying buffer (5%)
 BUFFER = 0.05 
 
-# --- SMART CACHING FUNCTION (The Fix) ---
-# This prevents "Too Many Requests" errors by remembering data for 60 seconds
+# --- SMART CACHING FUNCTION ---
 @st.cache_data(ttl=60)
-def get_stock_history(symbol):
+def get_stock_data(symbol):
     stock = yf.Ticker(symbol)
-    # return the full history
-    return stock.history(period="max")
+    # Get max history to calculate long-term yield
+    hist = stock.history(period="max")
+    return hist
+
+# --- HELPER: CALCULATE AVG YIELD ---
+def calculate_average_yield(hist):
+    try:
+        # 1. Create a copy to avoid modifying the cached data
+        df = hist.copy()
+        
+        # 2. Ensure we have a Year column
+        df['Year'] = df.index.year
+        
+        # 3. Group by Year: Sum dividends, Average the closing price
+        yearly = df.groupby('Year').agg({
+            'Dividends': 'sum', 
+            'Close': 'mean'
+        })
+        
+        # 4. Calculate Yield for each year
+        yearly['Yield'] = yearly['Dividends'] / yearly['Close']
+        
+        # 5. Filter for years with actual dividends (> 0)
+        valid_years = yearly[yearly['Yield'] > 0]
+        
+        # 6. Take the last 10 years (or fewer if less data exists)
+        recent_years = valid_years.tail(10)
+        
+        if recent_years.empty:
+            return 0.0, 0 # Return 0 if no dividend data
+            
+        avg_yield = recent_years['Yield'].mean() * 100 # Convert to percentage
+        years_count = len(recent_years)
+        
+        return avg_yield, years_count
+        
+    except Exception as e:
+        return 0.0, 0
 
 st.divider()
 
@@ -27,13 +64,12 @@ st.divider()
 st.subheader("💱 CAD/TWD Exchange Rate")
 
 try:
-    # Use the cached function instead of calling yfinance directly
-    fx_hist = get_stock_history("CADTWD=X")
+    fx_hist = get_stock_data("CADTWD=X")
     
     if not fx_hist.empty:
         curr_fx = fx_hist['Close'].iloc[-1]
         
-        # 52-Week Data (approx 252 trading days)
+        # 52-Week Data
         last_year_data = fx_hist.tail(252)
         low_52 = last_year_data['Low'].min()
         low_all_time = fx_hist['Low'].min()
@@ -56,7 +92,7 @@ try:
         st.warning("Could not load currency data.")
 
 except Exception as e:
-    st.warning(f"Currency currently unavailable (Rate Limit). Try again in 1 min.")
+    st.warning(f"Currency unavailable (Rate Limit). Try again shortly.")
 
 st.divider()
 
@@ -69,8 +105,7 @@ etfs = ['00713.TW', '00919.TW', '0056.TW', '0050.TW']
 
 for ticker in etfs:
     try:
-        # Use the cached function
-        hist = get_stock_history(ticker)
+        hist = get_stock_data(ticker)
         
         if hist.empty:
             st.warning(f"No data for {ticker}")
@@ -86,8 +121,12 @@ for ticker in etfs:
         gap_52 = ((current_price - low_52) / low_52) * 100
         gap_all = ((current_price - low_all_time) / low_all_time) * 100
         
+        # --- CALCULATE YIELD ---
+        avg_yield, years_count = calculate_average_yield(hist)
+        
         clean_name = ticker.replace('.TW','')
 
+        # Alert Logic
         if current_price <= target_price:
              st.error(f"🚨 {clean_name} is in BUY ZONE!")
              st.metric(label=clean_name, value=f"${current_price:.2f}", delta=f"{gap_52:.2f}% from 52w Low", delta_color="inverse")
@@ -95,24 +134,29 @@ for ticker in etfs:
              st.success(f"✅ {clean_name} is Waiting")
              st.metric(label=clean_name, value=f"${current_price:.2f}", delta=f"+{gap_52:.2f}% from 52w Low")
         
-        st.info(f"📉 **52-Week Low:** ${low_52:.2f}\n\n🏛️ **All-Time Low:** ${low_all_time:.2f} (Gap: {gap_all:.2f}%)")
+        # Display Stats with Yield
+        st.info(
+            f"💰 **Avg Yield:** {avg_yield:.2f}% (Last {years_count} yrs)\n\n"
+            f"📉 **52-Week Low:** ${low_52:.2f}\n\n"
+            f"🏛️ **All-Time Low:** ${low_all_time:.2f} (Gap: {gap_all:.2f}%)"
+        )
              
         st.divider()
         
     except Exception as e:
-        st.warning(f"Could not load {ticker}. (Rate Limit hit - wait a moment)")
+        st.warning(f"Loading {ticker}... (Rate Limit)")
 
 # ==========================================
-# SECTION 3: SAFER REFRESH
+# SECTION 3: REFRESH
 # ==========================================
-st.caption("Auto-refresh checks every 60s to prevent blocking.")
+st.caption("Auto-refresh checks every 60s.")
 auto_refresh = st.checkbox("🔄 Enable Auto-Refresh")
 
 if auto_refresh:
-    time.sleep(60) # Increased to 60s to prevent errors
+    time.sleep(60)
     st.rerun()
 
 if st.button('Manual Refresh'):
-    st.cache_data.clear() # This forces a real update when you click the button
+    st.cache_data.clear()
     st.rerun()
-
+    
